@@ -48,23 +48,20 @@ def feed_forward(inputs, weights, biases):
         raise Exception("weights elements must be an np.ndarray")
 
     layer_count = len(weights)
-
+    activations = [None] * layer_count
     # Set the first layer activations manually
-    activations = [inputs]
+    activations[0] = inputs
 
-    # Set up the shape of the remaining layer activations based on shape of
-    # weights. The correct activation values will feed forward
-    activations.extend([
-        np.zeros(len(weights[layer])) for layer in range(1, layer_count)
-    ])
-
-    # For layer 1, all nodes j:
+    # Find activations forward through the layers
     for layer in range(1, layer_count):
-        z_values = np.array([
-            sum(activations[layer-1] * weights[layer][j])
-            for j in range(len(weights[layer]))
-        ])
-        z_values += biases[layer]
+        # This line (matrix multiplication):
+        z_values = weights[layer] @ activations[layer-1] + biases[layer]
+        # ... is equivalent to this old code:
+        # z_values = np.array([
+        #     sum(activations[layer-1] * weights[layer][j])
+        #     for j in range(len(weights[layer]))
+        # ])
+        # z_values += biases[layer]
         activations[layer] = sigmoid(z_values)
     return activations
 
@@ -97,3 +94,6 @@ activations = feed_forward(inputs, all_weights, all_biases)
 
 if __name__ == "__main__":
     test()
+
+# This is the equivalent of binding.pry, pretty useful debug
+# import code; code.interact(local=dict(globals(), **locals()))
