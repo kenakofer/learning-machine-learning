@@ -2,19 +2,22 @@
 mnist_loader
 ~~~~~~~~~~~~
 
-This file downloaded from http://neuralnetworksanddeeplearning.com/chap1.html#exercise_420023, with minimal edits
+This file downloaded from
+http://neuralnetworksanddeeplearning.com/chap1.html#exercise_420023,
+with minimal edits
 
 A library to load the MNIST image data.  For details of the data
 structures that are returned, see the doc strings for ``load_data``
 and ``load_data_wrapper``.  In practice, ``load_data_wrapper`` is the
 function usually called by our neural network code.
 
-Download the data from https://github.com/mnielsen/neural-networks-and-deep-learning/blob/master/data/mnist.pkl.gz
+Download the data from
+https://github.com/mnielsen/neural-networks-and-deep-learning/blob/master/data/mnist.pkl.gz
 """
 
 # Libraries
 # Standard library
-import cPickle
+import pickle
 import gzip
 
 # Third-party libraries
@@ -44,8 +47,9 @@ def load_data():
     That's done in the wrapper function ``load_data_wrapper()``, see
     below.
     """
-    f = gzip.open('../data/mnist.pkl.gz', 'rb')
-    training_data, validation_data, test_data = cPickle.load(f)
+    f = gzip.open('./data/mnist.pkl.gz', 'rb')
+    all_data = pickle.load(f, encoding='latin1')
+    training_data, validation_data, test_data = all_data
     f.close()
     return (training_data, validation_data, test_data)
 
