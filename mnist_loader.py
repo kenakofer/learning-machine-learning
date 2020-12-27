@@ -94,3 +94,14 @@ def vectorized_result(j):
     e = np.zeros((10, 1))
     e[j] = 1.0
     return e
+
+
+def output_ascii_example(e):
+    if len(e) != 784:
+        raise Exception(f"""Argument is length {len(e)}, but should be 784""")
+
+    chars = [". ", "--", "##"]
+    for i in range(0, 784, 28):
+        print("".join([
+            chars[int(x * len(chars))] for [x] in e[i:i+28]
+        ]))
