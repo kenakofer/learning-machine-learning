@@ -9,19 +9,20 @@ import mnist_loader as loader
 import numpy as np
 from time import sleep
 from copy import deepcopy
+import warnings
 
 NODES_PER_LAYER = [784, 16, 16, 10]
 LAYER_COUNT = len(NODES_PER_LAYER)
 
 
-def new_network(nodes_per_layer):
+def new_network(nodes_per_layer, seed=1):
     layer_count = len(nodes_per_layer)
     layer_weights = [
-        new_layer_weights(layer, nodes_per_layer)
+        new_layer_weights(layer, nodes_per_layer, seed=seed)
         for layer in range(layer_count)
     ]
     layer_biases = [
-        new_layer_biases(layer, nodes_per_layer)
+        new_layer_biases(layer, nodes_per_layer, seed=seed)
         for layer in range(layer_count)
     ]
     return {
@@ -30,7 +31,7 @@ def new_network(nodes_per_layer):
     }
 
 
-def new_layer_weights(layer_number, nodes_per_layer):
+def new_layer_weights(layer_number, nodes_per_layer, seed=1):
     layer_count = len(nodes_per_layer)
     if layer_number < 0 or layer_number >= layer_count:
         raise Exception(f"""layer_number is {layer_number}. It must be
@@ -40,19 +41,11 @@ def new_layer_weights(layer_number, nodes_per_layer):
 
     current_node_count = nodes_per_layer[layer_number]
     previous_node_count = nodes_per_layer[layer_number - 1]
-    # return np.full(
-    #     [current_node_count, previous_node_count],
-    #     .01
-    #     dtype='float32'
-    # )
-    return np.full(
-        [previous_node_count, current_node_count],
-        np.arange(current_node_count) / current_node_count / 100,
-        dtype='float32'
-    ).T
+    np.random.seed(seed)
+    return 2 * np.random.rand(current_node_count, previous_node_count) - 1
 
 
-def new_layer_biases(layer_number, nodes_per_layer):
+def new_layer_biases(layer_number, nodes_per_layer, seed=1):
     layer_count = len(nodes_per_layer)
     if layer_number < 0 or layer_number >= layer_count:
         raise Exception(f"""layer_number is {layer_number}. It must be
@@ -75,11 +68,13 @@ def d_sigmoid(z):
 
 # This goes backwards from an activation a to the z value
 def i_sigmoid(a):
-    return -np.log(1/a - 1)
+    with warnings.catch_warnings(record=True):
+        return -np.log(1/a - 1)
 
 
 # It seems this will work for single example inputs (as a column), or a matrix
 # of inputs.
+# Returns a list of matrices, 1 matrix for each layer
 def feed_forward(net, inputs):
     if type(inputs) != np.ndarray:
         raise Exception(f"inputs is {inputs}. It must be an np.ndarray")
@@ -201,31 +196,62 @@ def backpropogate(net, correct_output, layer_activations, factor=1):
         net['biases'][layer] += bias_sum * factor
 
 
-def select_batch():
-    pass
+def select_batch(training_set, batch_size):
+    total_examples = len(training_set['inputs'][0])
+    batch_indices = np.random.choice(np.arange(total_examples), batch_size, replace=False)
+    batch_inputs = training_set['inputs'][:, batch_indices]
+    batch_targets = training_set['targets'][:, batch_indices]
+    return {
+        'inputs': batch_inputs,
+        'targets': batch_targets
+    }
 
 
 # TODO: Change this to work with multiple examples in matrix form
-def run_batch(net, examples_batch):
-    batch_size = len(examples_batch)
+def run_batch(net, examples_batch, print_cost=False):
+    batch_size = len(examples_batch['inputs'][0])
 
-    activations_by_example = [feed_forward(net, input) for (input, correct_output) in examples_batch]
-    final_activations_by_example = np.array([activations[-1] for activations in activations_by_example])
-    correct_outputs_by_example = np.array([correct_output for (input, correct_output) in examples_batch])
-    print(cost(correct_outputs_by_example, final_activations_by_example))
+    layer_activations = feed_forward(net, examples_batch['inputs'])
+    correct_outputs = examples_batch['targets']
+    if print_cost:
+        final_activations = layer_activations[-1]
+        print("Cost before:", cost(correct_outputs, final_activations))
 
-    for activations, (input, correct_output) in zip(activations_by_example, examples_batch):
-        backpropogate(net, correct_output, activations, factor=1/batch_size)
+    backpropogate(net, correct_outputs, layer_activations, factor=1/batch_size)
 
-    activations_by_example = [feed_forward(net, input) for (input, correct_output) in examples_batch]
-    final_activations_by_example = np.array([activations[-1] for activations in activations_by_example])
-    print(cost(correct_outputs_by_example, final_activations_by_example))
+    if print_cost:
+        layer_activations = feed_forward(net, examples_batch['inputs'])
+        final_activations = layer_activations[-1]
+        print("Cost after:", cost(correct_outputs, final_activations))
 
     # Time to run 100 examples 100 times: 2.9410629272460938
+    # After matricising
+    # Time to run 100 examples 100 times: 0.21088314056396484
+
+def run_random_batches(net, training_set, batch_size, batch_count, validation_data=None):
+    for i in range(batch_count):
+        batch_data = select_batch(training_set, batch_size)
+        run_batch(net, batch_data)
+        if validation_data and i % 100 == 0:
+            if 'validation_scores_history' not in net:
+                net['validation_scores_history'] = []
+            layer_activations = feed_forward(net, validation_data['inputs'])
+            validation_cost = cost(validation_data['targets'], layer_activations[-1])
+            net['validation_scores_history'].append(validation_cost)
+            print("Validation cost:", validation_cost)
 
 
 def my_transpose(a):
     return np.array([a], dtype='float32').T
+
+
+def get_cool_graph(training_data, validation_data, batch_size, batch_count, start_seed):
+    net = new_network(NODES_PER_LAYER, seed=start_seed)
+    run_random_batches(net, training_data, batch_size, batch_count, validation_data=validation_data)
+    import matplotlib.pyplot as plt
+    plt.plot(net['validation_scores_history'])
+    plt.ylabel(f"Validation scores (batch {batch_size}, seed {start_seed}")
+    plt.show()
 
 
 def test():
@@ -241,24 +267,32 @@ print("Finished loading defs. Time to execute...")
 sleep(1)
 
 # NEW SYSTEM
-net = new_network(NODES_PER_LAYER)
+net = new_network(NODES_PER_LAYER, seed=2)
 
-data = list(loader.load_data_wrapper())
-data = list(data[0])
+all_data = loader.load_data_wrapper()
+validation_count = 100
+training_data = {
+    'inputs': all_data['inputs'][:, :-validation_count],
+    'targets': all_data['targets'][:, :-validation_count]
+}
+validation_data = {
+    'inputs': all_data['inputs'][:, -validation_count:],
+    'targets': all_data['targets'][:, -validation_count:]
+}
 
 # Singular test case
 # inputs, correct_outputs = data[0]
 
 # Multiple test case
-inputs = np.concatenate([input for (input, _) in data[:12]], axis=1)
-correct_outputs = np.concatenate([output for (_, output) in data[:12]], axis=1)
+np.random.seed(2)
+batch_data = select_batch(training_data, 100)
 
-layer_activations = feed_forward(net, inputs)
-bias_gradient = find_bias_gradient(net, correct_outputs, layer_activations)
+layer_activations = feed_forward(net, batch_data['inputs'])
+bias_gradient = find_bias_gradient(net, batch_data['targets'], layer_activations)
 weight_gradient = find_weight_gradient(layer_activations, bias_gradient)
 
 net_copy = deepcopy(net)
-backpropogate(net, correct_outputs, layer_activations)
+backpropogate(net, batch_data['targets'], layer_activations)
 
 # This is the equivalent of binding.pry, pretty useful debug
 # import code; code.interact(local=dict(globals(), **locals()))

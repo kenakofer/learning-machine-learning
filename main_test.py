@@ -13,7 +13,7 @@ def test_new_network():
     assert len(subject['weights'][1][0]) == 4
     assert len(subject['weights'][2]) == 2
     assert len(subject['weights'][2][0]) == 3
-    assert subject['weights'][2][1][0] == pytest.approx(.005)
+    assert isinstance(subject['weights'][2][1][0], np.float)
 
     assert len(subject['biases']) == 3
     assert subject['biases'][0] is None
@@ -44,8 +44,7 @@ def test_d_sigmoid():
 
 def test_i_sigmoid():
     input = np.arange(0, 1, .123)
-    with pytest.warns(RuntimeWarning, match='divide by zero encountered'):
-        assert np.allclose(m.sigmoid(m.i_sigmoid(input)), input)
+    assert np.allclose(m.sigmoid(m.i_sigmoid(input)), input)
 
     input = np.arange(-5, 3, .123)
     assert np.allclose(m.i_sigmoid(m.sigmoid(input)), input)
