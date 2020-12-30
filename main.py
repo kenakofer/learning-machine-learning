@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# TODO:
+# np.matrix usage?
+# At some point we can set up the *_multiple forms of these functions to go faster with matrices
+
 import numpy as np
 from time import sleep
 from copy import deepcopy
@@ -149,35 +154,37 @@ bias_gradients_single = delta_all_layers
 
 def weight_gradients_single(layer_activations, delta_layers):
     return [None] + [
+        # Single case, final layer:
+        # 10 X 1         1 X 16            = 10 X 16
 
-        # Single case:
-        # 10 X 16         16 X 1      = 10 X 1
-
-        # Multiple case:
-        # For the final layer, given 10 examples:
+        # Multiple case, final layer:
+        # Given 12 examples:
+        # 10 X 12        12 X 16            = 10 X 16
+        # So this has the effect of already adding together the output of the
+        # multiple examples. I wonder if this is what we want...
         #
         delta_layers[l] @ layer_activations[l-1].T
         for l in range(1, len(layer_activations))
     ]
 
 
-def backpropogate_single(net, correct_output, layer_activations, factor=1):
+def backpropogate(net, correct_output, layer_activations, factor=1):
     bias_gradient = bias_gradients_single(net, correct_output, layer_activations)
     delta_gradient = bias_gradient
     weight_gradient = weight_gradients_single(layer_activations, delta_gradient)
 
     layer_count = len(net['weights'])
     for l in range(1, layer_count):
-        #import code; code.interact(local=dict(globals(), **locals()))
         net['weights'][l] += weight_gradient[l] * factor
-        net['biases'][l] += bias_gradient[l] * factor
 
-    # Then we can set up batching to
-    # and test on MNIST data
-    # At some point we can set up the *_multiple forms of these functions to go faster with matrices
+        # The sum here is equivalent to the summing that automatically happened
+        # in the weight gradient calculation
+        net['biases'][l] += np.matrix(bias_gradient[l]).sum(axis=1) * factor
+
 
 def select_batch():
     pass
+
 
 def run_batch(net, examples_batch):
     batch_size = len(examples_batch)
@@ -188,7 +195,7 @@ def run_batch(net, examples_batch):
     print(cost(correct_outputs_by_example, final_activations_by_example))
 
     for activations, (input, correct_output) in zip(activations_by_example, examples_batch):
-        backpropogate_single(net, correct_output, activations, factor=1/batch_size)
+        backpropogate(net, correct_output, activations, factor=1/batch_size)
 
     activations_by_example = [feed_forward(net, input) for (input, correct_output) in examples_batch]
     final_activations_by_example = np.array([activations[-1] for activations in activations_by_example])
@@ -221,18 +228,18 @@ data = list(loader.load_data_wrapper())
 data = list(data[0])
 
 # Singular test case
-inputs, correct_outputs = data[0]
+# inputs, correct_outputs = data[0]
 
 # Multiple test case
-#inputs = np.concatenate([input for (input, _) in data[:10]], axis=1)
-#correct_outputs = np.concatenate([output for (_, output) in data[:10]], axis=1)
+inputs = np.concatenate([input for (input, _) in data[:12]], axis=1)
+correct_outputs = np.concatenate([output for (_, output) in data[:12]], axis=1)
 
 layer_activations = feed_forward(net, inputs)
 bias_gradient = bias_gradients_single(net, correct_outputs, layer_activations)
 weight_gradient = weight_gradients_single(layer_activations, bias_gradient)
 
 net_copy = deepcopy(net)
-backpropogate_single(net, correct_outputs, layer_activations)
+backpropogate(net, correct_outputs, layer_activations)
 
 # This is the equivalent of binding.pry, pretty useful debug
 # import code; code.interact(local=dict(globals(), **locals()))
