@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
 # TODO:
-# np.matrix usage?
-# At some point we can set up the *_multiple forms of these functions to go faster with matrices
+# Change run_batch to work with multiple examples in matrix form
+
+import mnist_loader as loader
 
 import numpy as np
 from time import sleep
@@ -57,7 +58,10 @@ def new_layer_biases(layer_number, nodes_per_layer):
             between 0 and {layer_count-1}""")
     if layer_number == 0:
         return None
-    return my_transpose(np.zeros([nodes_per_layer[layer_number]], dtype='float32'))
+    return my_transpose(np.zeros(
+        [nodes_per_layer[layer_number]],
+        dtype='float32'
+    ))
 
 
 def sigmoid(z):
@@ -72,7 +76,9 @@ def d_sigmoid(z):
 def i_sigmoid(a):
     return -np.log(1/a - 1)
 
-# It seems this will work for single example inputs (as a column), or a matrix of inputs.
+
+# It seems this will work for single example inputs (as a column), or a matrix
+# of inputs.
 def feed_forward(net, inputs):
     if type(inputs) != np.ndarray:
         raise Exception(f"inputs is {inputs}. It must be an np.ndarray")
@@ -94,7 +100,8 @@ def feed_forward(net, inputs):
     # Find layer_activations forward through the layers
     for layer in range(1, layer_count):
         # This line (matrix multiplication):
-        z_values = net['weights'][layer] @ layer_activations[layer-1] + net['biases'][layer]
+        z_values = net['weights'][layer] @ layer_activations[layer-1] + \
+            net['biases'][layer]
         # ... is equivalent to this old code:
         # z_values = np.array([
         #     sum(layer_activations[layer-1] * net['weights'][layer][j])
@@ -110,20 +117,25 @@ def d_cost(correct_output, final_activation):
     return correct_output - final_activation
 
 
-# It seems this will work for single example inputs (as a column), or a matrix of inputs.
+# It seems this will work for single example inputs (as a column), or a matrix
+# of inputs.
 def cost(correct_outputs, activations):
     if type(correct_outputs) != np.ndarray:
-        raise Exception(f"correct_outputs is {correct_outputs}. It must be an np.ndarray")
+        raise Exception(f"""correct_outputs is {correct_outputs}. Expected
+        np.ndarray""")
     if type(activations) != np.ndarray:
-        raise Exception(f"activations is {activations}. It must be an np.ndarray")
+        raise Exception(f"activations is {activations}. Expected np.ndarray")
     if np.shape(correct_outputs) != np.shape(activations):
         raise Exception(f"the arguments must be the same shape")
-    return np.sum(np.square(correct_outputs - activations)) / (2 * len(correct_outputs[0]))
+    count = len(correct_outputs[0])
+    return np.sum(
+        np.square(correct_outputs - activations) / (2 * count)
+    )
 
 
 # One concept of this is as the desired change in bias of the final layer,
-# though it is also used for other parts of backpropagation
-# It seems this will work for single example inputs (as a column), or a matrix of inputs.
+# though it is also used for other parts of backpropagation. It seems this will
+# work for single example inputs (as a column), or a matrix of inputs.
 def delta_final_layer(correct_output, final_activation):
     z_values = i_sigmoid(final_activation)
     cost_gradient = d_cost(correct_output, final_activation)
@@ -131,16 +143,17 @@ def delta_final_layer(correct_output, final_activation):
     return np.multiply(cost_gradient, d_sigmoids)
 
 
-# It seems this will work for single example inputs (as a column), or a matrix of inputs.
+# It seems this will work for single example inputs (as a column), or a matrix
+# of inputs.
 def delta_all_layers(net, correct_output, layer_activations):
     layer_count = len(layer_activations)
     delta_layers = [None] * layer_count
     delta_layers[-1] = delta_final_layer(correct_output, layer_activations[-1])
 
-    for l in range(layer_count-2, 0, -1):
-        z_values = i_sigmoid(layer_activations[l])
-        delta_layers[l] = np.multiply(
-            net['weights'][l+1].T @ delta_layers[l+1],
+    for layer in range(layer_count-2, 0, -1):
+        z_values = i_sigmoid(layer_activations[layer])
+        delta_layers[layer] = np.multiply(
+            net['weights'][layer+1].T @ delta_layers[layer+1],
             d_sigmoid(z_values)
         )
 
@@ -148,11 +161,14 @@ def delta_all_layers(net, correct_output, layer_activations):
 
 
 # The above is the exact definition for the bias gradient
-# It seems this will work for single example inputs (as a column), or a matrix of inputs.
-bias_gradients_single = delta_all_layers
+# It seems this will work for single example inputs (as a column), or a matrix
+# of inputs.
+find_bias_gradient = delta_all_layers
 
 
-def weight_gradients_single(layer_activations, delta_layers):
+# It seems this will work for single example inputs (as a column), or a matrix
+# of inputs.
+def find_weight_gradient(layer_activations, delta_layers):
     return [None] + [
         # Single case, final layer:
         # 10 X 1         1 X 16            = 10 X 16
@@ -163,29 +179,32 @@ def weight_gradients_single(layer_activations, delta_layers):
         # So this has the effect of already adding together the output of the
         # multiple examples. I wonder if this is what we want...
         #
-        delta_layers[l] @ layer_activations[l-1].T
-        for l in range(1, len(layer_activations))
+        delta_layers[layer] @ layer_activations[layer-1].T
+        for layer in range(1, len(layer_activations))
     ]
 
 
+# It seems this will work for single example inputs (as a column), or a matrix
+# of inputs.
 def backpropogate(net, correct_output, layer_activations, factor=1):
-    bias_gradient = bias_gradients_single(net, correct_output, layer_activations)
+    bias_gradient = find_bias_gradient(net, correct_output, layer_activations)
     delta_gradient = bias_gradient
-    weight_gradient = weight_gradients_single(layer_activations, delta_gradient)
+    weight_gradient = find_weight_gradient(layer_activations, delta_gradient)
 
     layer_count = len(net['weights'])
     for l in range(1, layer_count):
         net['weights'][l] += weight_gradient[l] * factor
-
         # The sum here is equivalent to the summing that automatically happened
         # in the weight gradient calculation
-        net['biases'][l] += np.matrix(bias_gradient[l]).sum(axis=1) * factor
+        bias_sum = bias_gradient[l].sum(axis=1, keepdims=True)
+        net['biases'][l] += bias_sum * factor
 
 
 def select_batch():
     pass
 
 
+# TODO: Change this to work with multiple examples in matrix form
 def run_batch(net, examples_batch):
     batch_size = len(examples_batch)
 
@@ -223,7 +242,6 @@ sleep(1)
 # NEW SYSTEM
 net = new_network(NODES_PER_LAYER)
 
-import mnist_loader as loader
 data = list(loader.load_data_wrapper())
 data = list(data[0])
 
@@ -235,8 +253,8 @@ inputs = np.concatenate([input for (input, _) in data[:12]], axis=1)
 correct_outputs = np.concatenate([output for (_, output) in data[:12]], axis=1)
 
 layer_activations = feed_forward(net, inputs)
-bias_gradient = bias_gradients_single(net, correct_outputs, layer_activations)
-weight_gradient = weight_gradients_single(layer_activations, bias_gradient)
+bias_gradient = find_bias_gradient(net, correct_outputs, layer_activations)
+weight_gradient = find_weight_gradient(layer_activations, bias_gradient)
 
 net_copy = deepcopy(net)
 backpropogate(net, correct_outputs, layer_activations)
