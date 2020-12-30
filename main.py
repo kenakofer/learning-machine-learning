@@ -2,6 +2,7 @@
 
 # TODO:
 # Change run_batch to work with multiple examples in matrix form
+# Use 2-dimensional check on more arguments, and add unit tests of it.
 
 import mnist_loader as loader
 
@@ -84,8 +85,6 @@ def feed_forward(net, inputs):
         raise Exception(f"inputs is {inputs}. It must be an np.ndarray")
     if type(inputs[0]) != np.ndarray:
         raise Exception(f"inputs[0] is {inputs}. It must be an np.ndarray")
-    if type(inputs) != np.ndarray:
-        raise Exception(f"inputs is {inputs}. It must be an np.ndarray")
     if net['weights'][0] is not None:
         raise Exception("""net['weights'][0] should be None, since the input
             layer has no incoming weights.""")
@@ -125,6 +124,8 @@ def cost(correct_outputs, activations):
         np.ndarray""")
     if type(activations) != np.ndarray:
         raise Exception(f"activations is {activations}. Expected np.ndarray")
+    if len(np.shape(correct_outputs)) != 2:
+        raise Exception(f"the arguments must be 2 dimensional")
     if np.shape(correct_outputs) != np.shape(activations):
         raise Exception(f"the arguments must be the same shape")
     count = len(correct_outputs[0])
@@ -192,12 +193,12 @@ def backpropogate(net, correct_output, layer_activations, factor=1):
     weight_gradient = find_weight_gradient(layer_activations, delta_gradient)
 
     layer_count = len(net['weights'])
-    for l in range(1, layer_count):
-        net['weights'][l] += weight_gradient[l] * factor
+    for layer in range(1, layer_count):
+        net['weights'][layer] += weight_gradient[layer] * factor
         # The sum here is equivalent to the summing that automatically happened
         # in the weight gradient calculation
-        bias_sum = bias_gradient[l].sum(axis=1, keepdims=True)
-        net['biases'][l] += bias_sum * factor
+        bias_sum = bias_gradient[layer].sum(axis=1, keepdims=True)
+        net['biases'][layer] += bias_sum * factor
 
 
 def select_batch():
