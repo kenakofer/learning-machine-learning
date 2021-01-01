@@ -238,14 +238,45 @@ def run_random_batches(net, training_set, batch_size, batch_count, validation_da
             print("Validation cost:", validation_cost)
 
 
-def get_cool_graph(training_data, validation_data, batch_size, batch_count, start_seed):
+def graph_network_score(training_data, validation_data, batch_size, batch_count, start_seed):
     net = new_network(NODES_PER_LAYER, seed=start_seed)
     start = time()
     run_random_batches(net, training_data, batch_size, batch_count, validation_data=validation_data)
     duration = time() - start
+    return net['validation_scores_history']
+
+
+def graph_batch_sizes(training_data, validation_data, batch_sizes, batch_count, start_seed):
+    lines = np.array([
+        graph_network_score(
+            training_data,
+            validation_data,
+            size,
+            batch_count,
+            start_seed
+        ) for size in batch_sizes
+    ]).T
     import matplotlib.pyplot as plt
-    plt.plot(net['validation_scores_history'])
-    plt.ylabel(f"Validation scores (batch {batch_size}, seed {start_seed}, runs {batch_count}, time {duration}")
+    plt.plot(lines)
+    plt.ylabel(f"Validation scores (seed {start_seed}, runs {batch_count}")
+    plt.legend(batch_sizes)
+    plt.show()
+
+
+def graph_seeds(training_data, validation_data, batch_size, batch_count, start_seeds):
+    lines = np.array([
+        graph_network_score(
+            training_data,
+            validation_data,
+            batch_size,
+            batch_count,
+            seed
+        ) for seed in start_seeds
+    ]).T
+    import matplotlib.pyplot as plt
+    plt.plot(lines)
+    plt.ylabel(f"Validation scores (batch_size {batch_size}, runs {batch_count}")
+    plt.legend(start_seeds)
     plt.show()
 
 
