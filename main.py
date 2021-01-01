@@ -7,7 +7,7 @@
 import mnist_loader as loader
 
 import numpy as np
-from time import sleep
+from time import sleep, time
 from copy import deepcopy
 import warnings
 
@@ -56,6 +56,10 @@ def new_layer_biases(layer_number, nodes_per_layer, seed=1):
         [nodes_per_layer[layer_number]],
         dtype='float32'
     ))
+
+
+def my_transpose(a):
+    return np.array([a], dtype='float32').T
 
 
 def sigmoid(z):
@@ -207,26 +211,19 @@ def select_batch(training_set, batch_size):
     }
 
 
-# TODO: Change this to work with multiple examples in matrix form
 def run_batch(net, examples_batch, print_cost=False):
     batch_size = len(examples_batch['inputs'][0])
 
     layer_activations = feed_forward(net, examples_batch['inputs'])
-    correct_outputs = examples_batch['targets']
     if print_cost:
-        final_activations = layer_activations[-1]
-        print("Cost before:", cost(correct_outputs, final_activations))
+        print("Cost before:", cost(examples_batch['targets'], layer_activations[-1]))
 
-    backpropogate(net, correct_outputs, layer_activations, factor=1/batch_size)
+    backpropogate(net, examples_batch['targets'], layer_activations, factor=1/batch_size)
 
     if print_cost:
         layer_activations = feed_forward(net, examples_batch['inputs'])
-        final_activations = layer_activations[-1]
-        print("Cost after:", cost(correct_outputs, final_activations))
+        print("Cost before:", cost(examples_batch['targets'], layer_activations[-1]))
 
-    # Time to run 100 examples 100 times: 2.9410629272460938
-    # After matricising
-    # Time to run 100 examples 100 times: 0.21088314056396484
 
 def run_random_batches(net, training_set, batch_size, batch_count, validation_data=None):
     for i in range(batch_count):
@@ -241,21 +238,15 @@ def run_random_batches(net, training_set, batch_size, batch_count, validation_da
             print("Validation cost:", validation_cost)
 
 
-def my_transpose(a):
-    return np.array([a], dtype='float32').T
-
-
 def get_cool_graph(training_data, validation_data, batch_size, batch_count, start_seed):
     net = new_network(NODES_PER_LAYER, seed=start_seed)
+    start = time()
     run_random_batches(net, training_data, batch_size, batch_count, validation_data=validation_data)
+    duration = time() - start
     import matplotlib.pyplot as plt
     plt.plot(net['validation_scores_history'])
-    plt.ylabel(f"Validation scores (batch {batch_size}, seed {start_seed}")
+    plt.ylabel(f"Validation scores (batch {batch_size}, seed {start_seed}, runs {batch_count}, time {duration}")
     plt.show()
-
-
-def test():
-    print("hello world 5")
 
 
 def reload(m):
@@ -264,11 +255,10 @@ def reload(m):
 
 
 print("Finished loading defs. Time to execute...")
-sleep(1)
 
-# NEW SYSTEM
 net = new_network(NODES_PER_LAYER, seed=2)
 
+# validation contains 100 examples, and traning has the rest.
 all_data = loader.load_data_wrapper()
 validation_count = 100
 training_data = {
@@ -280,19 +270,14 @@ validation_data = {
     'targets': all_data['targets'][:, -validation_count:]
 }
 
-# Singular test case
-# inputs, correct_outputs = data[0]
-
-# Multiple test case
-np.random.seed(2)
-batch_data = select_batch(training_data, 100)
-
-layer_activations = feed_forward(net, batch_data['inputs'])
-bias_gradient = find_bias_gradient(net, batch_data['targets'], layer_activations)
-weight_gradient = find_weight_gradient(layer_activations, bias_gradient)
-
-net_copy = deepcopy(net)
-backpropogate(net, batch_data['targets'], layer_activations)
+# np.random.seed(2)
+# batch_data = select_batch(training_data, 100)
+# layer_activations = feed_forward(net, batch_data['inputs'])
+# bias_gradient = find_bias_gradient(net, batch_data['targets'], layer_activations)
+# weight_gradient = find_weight_gradient(layer_activations, bias_gradient)
+# net_copy = deepcopy(net)
+# backpropogate(net, batch_data['targets'], layer_activations)
+# m.get_cool_graph(m.training_data, m.validation_data, 100, 100, 2)
 
 # This is the equivalent of binding.pry, pretty useful debug
 # import code; code.interact(local=dict(globals(), **locals()))
