@@ -200,82 +200,119 @@ def backpropogate(net, correct_output, layer_activations, factor=1):
         net['biases'][layer] += bias_sum * factor
 
 
-def select_batch(training_set, batch_size):
-    total_examples = len(training_set['inputs'][0])
-    batch_indices = np.random.choice(np.arange(total_examples), batch_size, replace=False)
-    batch_inputs = training_set['inputs'][:, batch_indices]
-    batch_targets = training_set['targets'][:, batch_indices]
+def select_batch(training_set, indices):
+    batch_inputs = training_set['inputs'][:, indices]
+    batch_targets = training_set['targets'][:, indices]
     return {
         'inputs': batch_inputs,
         'targets': batch_targets
     }
 
 
-def run_batch(net, examples_batch, print_cost=False):
+def run_batch(net, examples_batch, print_cost=False, step_size=1):
     batch_size = len(examples_batch['inputs'][0])
 
     layer_activations = feed_forward(net, examples_batch['inputs'])
     if print_cost:
         print("Cost before:", cost(examples_batch['targets'], layer_activations[-1]))
 
-    backpropogate(net, examples_batch['targets'], layer_activations, factor=1/batch_size)
+    backpropogate(net, examples_batch['targets'], layer_activations, factor=step_size/batch_size)
 
     if print_cost:
         layer_activations = feed_forward(net, examples_batch['inputs'])
         print("Cost before:", cost(examples_batch['targets'], layer_activations[-1]))
 
 
-def run_random_batches(net, training_set, batch_size, batch_count, validation_data=None):
+def run_epoch(net, training_set, batch_size, validation_data=None, start_time=None, step_size=1):
+    batch_count = int(np.ceil(len(training_set['inputs'][0]) / batch_size))
+    indices = np.random.permutation(len(training_set['inputs'][0]))
     for i in range(batch_count):
-        batch_data = select_batch(training_set, batch_size)
-        run_batch(net, batch_data)
-        if validation_data and i % 100 == 0:
+        batch_data = select_batch(training_set, indices[i*batch_size : i*batch_size+batch_size])
+        run_batch(net, batch_data, step_size=step_size)
+        if validation_data and i % 10 == 9:
             if 'validation_scores_history' not in net:
                 net['validation_scores_history'] = []
             layer_activations = feed_forward(net, validation_data['inputs'])
             validation_cost = cost(validation_data['targets'], layer_activations[-1])
-            net['validation_scores_history'].append(validation_cost)
-            print("Validation cost:", validation_cost)
+            net['validation_scores_history'].append((time() - start_time, validation_cost))
+
+            if validation_data and i % 100 == 99:
+                print("Validation cost:", (time() - start_time, validation_cost))
 
 
-def graph_network_score(training_data, validation_data, batch_size, batch_count, start_seed):
+def graph_network_score(training_data, validation_data, batch_size, time_limit, start_seed, step_size=1):
     net = new_network(NODES_PER_LAYER, seed=start_seed)
     start = time()
-    run_random_batches(net, training_data, batch_size, batch_count, validation_data=validation_data)
+    while time() - start < time_limit:
+        run_epoch(net, training_data, batch_size, validation_data=validation_data, start_time=start, step_size=step_size)
+
     duration = time() - start
     return net['validation_scores_history']
 
 
-def graph_batch_sizes(training_data, validation_data, batch_sizes, batch_count, start_seed):
+def graph_batch_sizes(training_data, validation_data, batch_sizes, time_limit, start_seed):
     lines = np.array([
         graph_network_score(
             training_data,
             validation_data,
             size,
-            batch_count,
-            start_seed
+            time_limit,
+            start_seed,
         ) for size in batch_sizes
-    ]).T
+    ])
     import matplotlib.pyplot as plt
-    plt.plot(lines)
-    plt.ylabel(f"Validation scores (seed {start_seed}, runs {batch_count}")
+    plt.clf()
+    plt.close()
+    for i in range(len(batch_sizes)):
+        line = np.array(lines[i]).T
+
+        plt.plot(line[0], line[1])
+    plt.ylabel(f"Validation scores (seed {start_seed}, time_limit {time_limit})")
     plt.legend(batch_sizes)
     plt.show()
+    return lines
 
+def moving_average(array, window=10):
+    weights = np.concatenate([np.arange(1/window, 1, 1/window), np.arange(1, 0, -1/window)])
+    total_weight = np.sum(weights)
+    return np.convolve(array, weights, 'valid') / total_weight
 
-def graph_seeds(training_data, validation_data, batch_size, batch_count, start_seeds):
+def graph_step_sizes(training_data, validation_data, batch_size, time_limit, start_seed, step_sizes):
     lines = np.array([
         graph_network_score(
             training_data,
             validation_data,
             batch_size,
-            batch_count,
+            time_limit,
+            start_seed,
+            step_size=size
+        ) for size in step_sizes
+    ])
+    import matplotlib.pyplot as plt
+    plt.clf()
+    plt.close()
+    for i in range(len(step_sizes)):
+        line = np.array(lines[i]).T
+        plt.plot(line[0][9:-9], moving_average(line[1]))
+    plt.ylabel(f"Validation scores (seed {start_seed}, time_limit {time_limit}, batch_size {batch_size})")
+    plt.legend(step_sizes)
+    plt.show()
+    return lines
+
+
+def graph_seeds(training_data, validation_data, batch_size, time_limit, start_seeds):
+    lines = np.array([
+        graph_network_score(
+            training_data,
+            validation_data,
+            batch_size,
+            time_limit,
             seed
         ) for seed in start_seeds
     ]).T
     import matplotlib.pyplot as plt
     plt.plot(lines)
-    plt.ylabel(f"Validation scores (batch_size {batch_size}, runs {batch_count}")
+    plt.ylabel(f"Validation scores (batch_size {batch_size}, time_limit {time_limit})")
     plt.legend(start_seeds)
     plt.show()
 
