@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
 # TODO:
-# Change run_batch to work with multiple examples in matrix form
-# Use 2-dimensional check on more arguments, and add unit tests of it.
+# Try meta-validation sets, find absolute minimum and jump to it
 
 import mnist_loader as loader
 
@@ -11,7 +10,7 @@ from time import sleep, time
 from copy import deepcopy
 import warnings
 
-NODES_PER_LAYER = [784, 16, 16, 10]
+NODES_PER_LAYER = [784, 16, 8, 10]
 LAYER_COUNT = len(NODES_PER_LAYER)
 
 
@@ -232,22 +231,29 @@ def run_epoch(net, training_set, batch_size, validation_data=None, start_time=No
         if validation_data and i % 10 == 9:
             if 'validation_scores_history' not in net:
                 net['validation_scores_history'] = []
+            if 'percent_incorrect_history' not in net:
+                net['percent_incorrect_history'] = []
             layer_activations = feed_forward(net, validation_data['inputs'])
             validation_cost = cost(validation_data['targets'], layer_activations[-1])
+            total_correct = np.sum(np.equal(
+                np.argmax(validation_data['targets'], axis=0),
+                np.argmax(layer_activations[-1], axis=0)
+            ))
             net['validation_scores_history'].append((time() - start_time, validation_cost))
+            net['percent_incorrect_history'].append((time() - start_time, 1 - total_correct / len(validation_data['inputs'][0])))
 
             if validation_data and i % 100 == 99:
                 print("Validation cost:", (time() - start_time, validation_cost))
 
 
-def graph_network_score(training_data, validation_data, batch_size, time_limit, start_seed, step_size=1):
+def graph_network_score(training_data, validation_data, batch_size, time_limit, start_seed, step_size=1, metric='percent_incorrect_history'):
     net = new_network(NODES_PER_LAYER, seed=start_seed)
     start = time()
     while time() - start < time_limit:
         run_epoch(net, training_data, batch_size, validation_data=validation_data, start_time=start, step_size=step_size)
 
     duration = time() - start
-    return net['validation_scores_history']
+    return net[metric]
 
 
 def graph_batch_sizes(training_data, validation_data, batch_sizes, time_limit, start_seed):
@@ -265,8 +271,7 @@ def graph_batch_sizes(training_data, validation_data, batch_sizes, time_limit, s
     plt.close()
     for i in range(len(batch_sizes)):
         line = np.array(lines[i]).T
-
-        plt.plot(line[0], line[1])
+        plt.plot(line[0][9:-9], moving_average(line[1]))
     plt.ylabel(f"Validation scores (seed {start_seed}, time_limit {time_limit})")
     plt.legend(batch_sizes)
     plt.show()
@@ -311,11 +316,38 @@ def graph_seeds(training_data, validation_data, batch_size, time_limit, start_se
         ) for seed in start_seeds
     ]).T
     import matplotlib.pyplot as plt
-    plt.plot(lines)
+    for i in range(len(start_seeds)):
+        line = np.array(lines[i]).T
+        plt.plot(line[0][9:-9], moving_average(line[1]))
     plt.ylabel(f"Validation scores (batch_size {batch_size}, time_limit {time_limit})")
     plt.legend(start_seeds)
     plt.show()
 
+def graph_batch_and_step_sizes(training_data, validation_data, batch_sizes, step_sizes, time_limit, start_seed):
+    lines = np.array([
+        graph_network_score(
+            training_data,
+            validation_data,
+            batch_size,
+            time_limit,
+            start_seed,
+            step_size=step_size
+        ) for batch_size in batch_sizes
+        for step_size in step_sizes
+    ])
+    import matplotlib.pyplot as plt
+    from matplotlib import rcParams, cycler
+    plt.clf()
+    plt.close()
+    cmap = plt.cm.coolwarm
+    rcParams['axes.prop_cycle'] = cycler(color=cmap(np.linspace(0, 1, len(lines))))
+    for i in range(len(lines)):
+        line = np.array(lines[i]).T
+        plt.plot(line[0][9:-9], moving_average(line[1]))
+    plt.ylabel(f"Validation scores (seed {start_seed}, time_limit {time_limit})")
+    plt.legend([f"batch_size={bs}, step_size={ss}" for bs in batch_sizes for ss in step_sizes])
+    plt.show()
+    return lines
 
 def reload(m):
     import importlib
