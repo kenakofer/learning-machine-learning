@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import pytest
-import main as m
+import neural_net_basics as m
 import numpy as np
 
 
