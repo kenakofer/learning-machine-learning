@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # TODO:
-# Try meta-validation sets, find absolute minimum and jump to it
+# Try pseudo-validation sets, find absolute minimum and jump to it
 
 import mnist_loader as loader
 
@@ -26,7 +26,8 @@ def new_network(nodes_per_layer, seed=1):
     ]
     return {
         "weights": layer_weights,
-        "biases": layer_biases
+        "biases": layer_biases,
+        "best_pseudo_validation_cost": np.inf
     }
 
 
@@ -222,57 +223,120 @@ def run_batch(net, examples_batch, print_cost=False, step_size=1):
         print("Cost before:", cost(examples_batch['targets'], layer_activations[-1]))
 
 
-def run_epoch(net, training_set, batch_size, validation_data=None, start_time=None, step_size=1):
+def run_epoch(net, training_set, batch_size, pseudo_validation_data=None, validation_data=None, start_time=None, step_size=1):
     batch_count = int(np.ceil(len(training_set['inputs'][0]) / batch_size))
     indices = np.random.permutation(len(training_set['inputs'][0]))
     for i in range(batch_count):
         batch_data = select_batch(training_set, indices[i*batch_size : i*batch_size+batch_size])
         run_batch(net, batch_data, step_size=step_size)
-        if validation_data and i % 10 == 9:
-            if 'validation_scores_history' not in net:
-                net['validation_scores_history'] = []
-            if 'percent_incorrect_history' not in net:
-                net['percent_incorrect_history'] = []
-            layer_activations = feed_forward(net, validation_data['inputs'])
-            validation_cost = cost(validation_data['targets'], layer_activations[-1])
+        feed_forward
+        if validation_data and i % 10 == 0:
+            if 'history' not in net:
+                net['history'] = {}
+            time_since_start = round(time() - start_time, 4)
+            net['history'][time_since_start] = {}
+
+            if pseudo_validation_data:
+                pseudo_validation_cost = cost(
+                    pseudo_validation_data['targets'],
+                    feed_forward(net, pseudo_validation_data['inputs'])[-1]
+                )
+                net['history'][time_since_start]['pseudo_validation_scores'] = pseudo_validation_cost
+                if pseudo_validation_cost < net['best_pseudo_validation_cost']:
+                    net['best_pseudo_validation_cost'] = pseudo_validation_cost
+                    net['best_weights'] = deepcopy(net['weights'])
+                    net['best_biases'] = deepcopy(net['biases'])
+
+            validation_layer_activations = feed_forward(net, validation_data['inputs'])
             total_correct = np.sum(np.equal(
                 np.argmax(validation_data['targets'], axis=0),
-                np.argmax(layer_activations[-1], axis=0)
+                np.argmax(validation_layer_activations[-1], axis=0)
             ))
-            net['validation_scores_history'].append((time() - start_time, validation_cost))
-            net['percent_incorrect_history'].append((time() - start_time, 1 - total_correct / len(validation_data['inputs'][0])))
+            net['history'][time_since_start]['training_cost'] = cost(batch_data['targets'], feed_forward(net, batch_data['inputs'])[-1])
+            net['history'][time_since_start]['validation_scores'] = cost(validation_data['targets'], validation_layer_activations[-1])
+            net['history'][time_since_start]['percent_incorrect'] = 1 - total_correct / len(validation_data['inputs'][0])
 
             if validation_data and i % 100 == 99:
-                print("Validation cost:", (time() - start_time, validation_cost))
+                print("Validation cost:", (time() - start_time, net['history'][time_since_start]['validation_scores']))
 
 
-def graph_network_score(training_data, validation_data, batch_size, time_limit, start_seed, step_size=1, metric='percent_incorrect_history'):
+def get_network_history_data(training_data, validation_data, batch_size, time_limit, start_seed, step_size=10):
     net = new_network(NODES_PER_LAYER, seed=start_seed)
     start = time()
     while time() - start < time_limit:
         run_epoch(net, training_data, batch_size, validation_data=validation_data, start_time=start, step_size=step_size)
 
     duration = time() - start
-    return net[metric]
+    return net['history']
+
+def repeated_loopback_data(training_data, pseudo_validation_data, validation_data, batch_size, time_per_loop, start_seed, step_sizes):
+    net = new_network(NODES_PER_LAYER, seed=start_seed)
+    start = time()
+    for step_size in step_sizes:
+        loop_start = time()
+        while time() - loop_start < time_per_loop:
+            run_epoch(net, training_data, batch_size, pseudo_validation_data=pseudo_validation_data, validation_data=validation_data, start_time=start, step_size=step_size)
+        net['weights'] = deepcopy(net['best_weights'])
+        net['biases'] = deepcopy(net['best_biases'])
+        print("Jumping back at time", str(time() - start), "to score", net["best_pseudo_validation_cost"])
+
+    return net['history']
+
+def graph_repeated_loopback(training_data, pseudo_validation_data, validation_data, batch_size, time_per_loop, start_seed, step_sizes=None, metrics=["percent_incorrect"]):
+    if step_sizes is None:
+        step_sizes = [10, 1, .1]
+    line = repeated_loopback_data(
+            training_data,
+            pseudo_validation_data,
+            validation_data,
+            batch_size,
+            time_per_loop,
+            start_seed,
+            step_sizes
+        )
+    import matplotlib.pyplot as plt
+    plt.clf()
+    plt.close()
+    for j, metric in enumerate(metrics):
+        plt.subplot(len(metrics), 1, j+1)
+        times_array = np.array(list(line.keys()))
+        #import code; code.interact(local=dict(globals(), **locals()))
+        values_array = np.array([d[metric] for d in line.values()])
+        #if len(times_array) > 30:
+        #    plt.plot(times_array[9:-9], moving_average(values_array))
+        #else:
+        plt.plot(times_array, values_array)
+
+        plt.ylabel(f"{metric} (seed {start_seed}, time_limit {time_per_loop})")
+    plt.show()
+    return line
 
 
-def graph_batch_sizes(training_data, validation_data, batch_sizes, time_limit, start_seed):
-    lines = np.array([
-        graph_network_score(
+def graph_batch_sizes(training_data, validation_data, batch_sizes, time_limit, start_seed, metrics=["percent_incorrect"]):
+    lines = [
+        get_network_history_data(
             training_data,
             validation_data,
             size,
             time_limit,
             start_seed,
         ) for size in batch_sizes
-    ])
+    ]
     import matplotlib.pyplot as plt
     plt.clf()
     plt.close()
-    for i in range(len(batch_sizes)):
-        line = np.array(lines[i]).T
-        plt.plot(line[0][9:-9], moving_average(line[1]))
-    plt.ylabel(f"Validation scores (seed {start_seed}, time_limit {time_limit})")
+    for j, metric in enumerate(metrics):
+        plt.subplot(len(metrics), 1, j+1)
+        for i in range(len(batch_sizes)):
+            times_array = np.array(list(lines[i].keys()))
+            #import code; code.interact(local=dict(globals(), **locals()))
+            values_array = np.array([d[metric] for d in lines[i].values()])
+            if len(times_array) > 30:
+                plt.plot(times_array[9:-9], moving_average(values_array))
+            else:
+                plt.plot(times_array, values_array)
+
+            plt.ylabel(f"{metric} (seed {start_seed}, time_limit {time_limit})")
     plt.legend(batch_sizes)
     plt.show()
     return lines
@@ -284,7 +348,7 @@ def moving_average(array, window=10):
 
 def graph_step_sizes(training_data, validation_data, batch_size, time_limit, start_seed, step_sizes):
     lines = np.array([
-        graph_network_score(
+        get_network_history_data(
             training_data,
             validation_data,
             batch_size,
@@ -307,7 +371,7 @@ def graph_step_sizes(training_data, validation_data, batch_size, time_limit, sta
 
 def graph_seeds(training_data, validation_data, batch_size, time_limit, start_seeds):
     lines = np.array([
-        graph_network_score(
+        get_network_history_data(
             training_data,
             validation_data,
             batch_size,
@@ -325,7 +389,7 @@ def graph_seeds(training_data, validation_data, batch_size, time_limit, start_se
 
 def graph_batch_and_step_sizes(training_data, validation_data, batch_sizes, step_sizes, time_limit, start_seed):
     lines = np.array([
-        graph_network_score(
+        get_network_history_data(
             training_data,
             validation_data,
             batch_size,
@@ -360,10 +424,15 @@ net = new_network(NODES_PER_LAYER, seed=2)
 
 # validation contains 100 examples, and traning has the rest.
 all_data = loader.load_data_wrapper()
-validation_count = 100
+pseudo_validation_count = 1000
+validation_count = 1000
 training_data = {
-    'inputs': all_data['inputs'][:, :-validation_count],
-    'targets': all_data['targets'][:, :-validation_count]
+    'inputs': all_data['inputs'][:, :-(validation_count + pseudo_validation_count)],
+    'targets': all_data['targets'][:, :-(validation_count + pseudo_validation_count)]
+}
+pseudo_validation_data = {
+    'inputs': all_data['inputs'][:, -(validation_count + pseudo_validation_count):-validation_count],
+    'targets': all_data['targets'][:, -(validation_count + pseudo_validation_count):-validation_count]
 }
 validation_data = {
     'inputs': all_data['inputs'][:, -validation_count:],
